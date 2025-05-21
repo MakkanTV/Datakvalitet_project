@@ -30,9 +30,17 @@ class Banks(Base):
 class Transaction(Base):
     __tablename__ = 'transactions'
     id = Column(Integer, primary_key=True)
+    transaction_id = Column(String, unique=True, nullable=False)
     amount = Column(Numeric, default=0, nullable=False)
-    time = Column(DateTime, default=DateTime)
-    customer_id = Column(Integer, ForeignKey('customers.id'))
-    bank_id = Column(Integer, ForeignKey('banks.id'))
+    timestamp = Column(DateTime, default=DateTime)
+    currency = Column(String, nullable=False)
+    sender_account = Column(String, nullable=False)
+    receiver_account = Column(String, nullable=False)
+    sender_country = Column(String, nullable=False)
+    sender_municipality = Column(String, nullable=False)
+    receiver_country = Column(String, nullable=False)
+    receiver_municipality = Column(String, nullable=False)
+    transaction_type = Column(String, nullable=False)
+    notes = Column(String, nullable=False)
 
 
