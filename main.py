@@ -1,17 +1,15 @@
+import logging
 import psycopg2
-from db import init_db,session
 import csv
 from datetime import datetime
-import os
+from db import init_db, session
+from transactions_handler import process_transaction
 
-
-def main():
-    init_db()
-
-
-
-conn = psycopg2.connect("dbname=datakvalitet user=myuser password=mysecretpassword host=localhost port=5461")
-cur = conn.cursor()
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 required_fields = [
     "transaction_id", "timestamp", "amount", "currency",
@@ -31,7 +29,6 @@ def clean_amount(value):
         return None
 
 def clean_timestamp(ts):
-
     formats = ["%Y-%m-%d %H:%M:%S", "%Y%m%d %H:%M:%S"]
     for fmt in formats:
         try:
@@ -47,63 +44,74 @@ def normalize_currency(currency):
     code = currency.strip().upper()
     return "CNY" if code == "RMB" else code
 
+def main():
+    logging.info("Program started")
+    init_db()
 
-try:
-    with open("transactions.csv", newline="", encoding="utf-8") as f, \
-         open("rejected_transactions.csv", "a", newline="", encoding="utf-8") as rejected_files:
-        reader = csv.DictReader(f)
+    conn = psycopg2.connect("dbname=datakvalitet user=myuser password=mysecretpassword host=localhost port=5461")
+    cur = conn.cursor()
 
-        field_names = required_fields + ["notes"]
-        rejected_writer = csv.DictWriter(rejected_files, fieldnames=field_names)
+    try:
+        with open("transactions.csv", newline="", encoding="utf-8") as f, \
+             open("rejected_transactions.csv", "a", newline="", encoding="utf-8") as rejected_files:
 
-        if rejected_files.tell() == 0:
-            rejected_writer.writeheader()
+            reader = csv.DictReader(f)
+            field_names = required_fields + ["notes"]
+            rejected_writer = csv.DictWriter(rejected_files, fieldnames=field_names)
 
+            if rejected_files.tell() == 0:
+                rejected_writer.writeheader()
 
-        cur.execute("BEGIN;")
+            cur.execute("BEGIN;")
 
-        for row in reader:
-            try:
-                for field in required_fields:
-                    if not row.get(field) or row[field] == "":
-                        raise ValueError(f"{field} saknar värde")
-
+            for row in reader:
+                try:
+                    for field in required_fields:
+                        if not row.get(field) or row[field].strip() == "":
+                            raise ValueError(f"{field} saknar värde")
 
                     timestamp = clean_timestamp(row["timestamp"])
-                if not timestamp:
-                    print("Ogiltigt timestamp format: " + row['timestamp'])
+                    if not timestamp:
+                        raise ValueError(f"Ogiltigt timestamp format: {row['timestamp']}")
 
-                amount = clean_amount(row["amount"])
-                if amount is None:
-                    raise ValueError(f"Ogiltigt belopp: {row['amount']}")
+                    amount = clean_amount(row["amount"])
+                    if amount is None:
+                        raise ValueError(f"Ogiltigt belopp: {row['amount']}")
 
-                currency = normalize_currency(row["currency"])
-                if not currency:
-                    raise ValueError(f"Saknar eller ogiltig valuta: {row['currency']}")
+                    currency = normalize_currency(row["currency"])
+                    if not currency:
+                        raise ValueError(f"Saknar eller ogiltig valuta: {row['currency']}")
 
+                    cur.execute("""
+                        INSERT INTO transactions (
+                            transaction_id, timestamp, amount, currency,
+                            sender_account, receiver_account,
+                            sender_country, sender_municipality,
+                            receiver_country, receiver_municipality,
+                            transaction_type, notes
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    """, (
+                        row["transaction_id"], timestamp, amount, currency,
+                        row["sender_account"], row["receiver_account"],
+                        row["sender_country"], row["sender_municipality"],
+                        row["receiver_country"], row["receiver_municipality"],
+                        row["transaction_type"], row.get("notes", "")
+                    ))
 
-                cur.execute("INSERT INTO transactions (transaction_id, timestamp, amount, currency, sender_account, receiver_account, sender_country, sender_municipality, receiver_country, receiver_municipality, transaction_type, notes) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
-                        (row["transaction_id"], timestamp , amount, currency, row["sender_account"], row["receiver_account"], row["sender_country"], row["sender_municipality"], row["receiver_country"], row["receiver_municipality"], row["transaction_type"], row["notes"]))
+                except Exception as row_error:
+                    logging.error(f"Fel i rad: {row_error}")
+                    rejected_writer.writerow(row)
 
-            except Exception as row_error:
-                print("Fel i rad", row_error)
+            conn.commit()
+            logging.info("Import lyckades!")
 
-                cleaned_row = {k: (", ".join(map(str, v)) if isinstance(v, list) else v) for k, v in row.items()}
-                rejected_writer.writerow(cleaned_row)
+    except Exception as e:
+        conn.rollback()
+        logging.error(f"Import misslyckades, rollback genomförd: {e}")
 
-
-        conn.commit()
-        print("Import lyckades!")
-
-except Exception as e:
-    conn.rollback()
-    print("Import misslyckades, rollback genomförd:", e)
-
-finally:
-    rejected_files.close()
-    conn.close()
-
-
+    finally:
+        conn.close()
+        logging.info("Program ended")
 
 if __name__ == "__main__":
     main()
