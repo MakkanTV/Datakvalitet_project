@@ -31,8 +31,8 @@ class Transaction(Base):
     __tablename__ = 'transactions'
     id = Column(Integer, primary_key=True)
     transaction_id = Column(String, unique=True, nullable=False)
-    amount = Column(Numeric, default=0, nullable=False)
     timestamp = Column(DateTime, default=DateTime)
+    amount = Column(Numeric, default=0, nullable=False)
     currency = Column(String, nullable=False)
     sender_account = Column(String, nullable=False)
     receiver_account = Column(String, nullable=False)
@@ -42,5 +42,11 @@ class Transaction(Base):
     receiver_municipality = Column(String, nullable=False)
     transaction_type = Column(String, nullable=False)
     notes = Column(String, nullable=False)
+
+class Rejected_table(Base):
+    __tablename__ = 'rejected_tables'
+    id = Column(Integer, primary_key=True)
+
+
 
 
