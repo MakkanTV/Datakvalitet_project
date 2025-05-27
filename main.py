@@ -3,7 +3,9 @@ import psycopg2
 import csv
 from datetime import datetime
 from db import init_db, session
+from customer_insert import import_customers
 from transactions_handler import process_transaction
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,8 +50,11 @@ def main():
     logging.info("Program started")
     init_db()
 
+
     conn = psycopg2.connect("dbname=datakvalitet user=myuser password=mysecretpassword host=localhost port=5461")
     cur = conn.cursor()
+
+    import_customers(conn)
 
     try:
         with open("transactions.csv", newline="", encoding="utf-8") as f, \
@@ -101,6 +106,7 @@ def main():
                 except Exception as row_error:
                     logging.error(f"Fel i rad: {row_error}")
                     rejected_writer.writerow(row)
+                    cur.execute("BEGIN;")
 
             conn.commit()
             logging.info("Import lyckades!")
